@@ -14,7 +14,7 @@ from stock_market_agent_new import STOCK_SECTORS
 
 # Configuration
 st.set_page_config(
-    page_title="BioPulse Market Dashboard",
+    page_title="StockMatrix742",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -384,3 +384,4 @@ with col3:
 st.markdown("---")
 st.caption(f"Data source: Yahoo Finance | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 st.caption("⚠️ This dashboard is for informational purposes only. Not financial advice.")
+
