@@ -1,0 +1,251 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import mplfinance as mpf
+import yfinance as yf
+from datetime import datetime
+from ta.trend import MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands
+import time
+
+# ====== Twoje sektory ======
+from stock_market_agent_new import STOCK_SECTORS
+
+# ====== Konfiguracja strony ======
+st.set_page_config(
+    page_title="StockMatrix742",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.markdown("""
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <style>
+        .live-indicator {
+            position: fixed;
+            top: 20px;
+            right: 25px;
+            background-color: #ff0000;
+            color: white;
+            font-weight: bold;
+            border-radius: 50px;
+            padding: 6px 12px;
+            animation: pulse 1s infinite;
+            z-index: 9999;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# ====== Sidebar ======
+st.sidebar.title("⚙️ Settings")
+
+selected_sector = st.sidebar.selectbox("Select Sector", list(STOCK_SECTORS.keys()))
+custom_symbol = st.sidebar.text_input("🔍 Search custom symbol (e.g. TSLA)").upper()
+
+period_option = st.sidebar.select_slider(
+    "Select Time Range",
+    options=["7d", "30d", "3mo", "6mo", "1y", "2y", "5y"],
+    value="30d"
+)
+
+chart_type = st.sidebar.radio("Chart Type", ["Candle", "Line", "Bar"])
+chart_map = {"Candle": "candle", "Line": "line", "Bar": "ohlc"}
+
+theme = st.sidebar.radio("Theme", ["Light", "Dark"])
+style = "yahoo" if theme == "Light" else "nightclouds"
+
+# ====== Auto-refresh & Live Mode ======
+st.sidebar.markdown("### 🔄 Refresh Settings")
+refresh_interval = st.sidebar.slider("Refresh Interval (minutes)", 1, 10, 3)
+auto_refresh = st.sidebar.toggle("Enable Auto-Refresh", True)
+live_mode = st.sidebar.toggle("🚀 Enable Live Mode (every 30s)", False)
+
+# ====== Cache + dane ======
+@st.cache_data(ttl=60)
+def get_stock_data(symbol, period='30d'):
+    try:
+        stock = yf.Ticker(symbol)
+        info = stock.info
+        if 'regularMarketPrice' not in info or info['regularMarketPrice'] is None:
+            return pd.DataFrame()
+        hist = stock.history(period=period)
+        if len(hist) == 0:
+            return pd.DataFrame()
+
+        hist = hist.fillna(method='ffill').fillna(method='bfill')
+
+        rsi = RSIIndicator(close=hist['Close'], window=14)
+        macd = MACD(close=hist['Close'])
+        bb = BollingerBands(close=hist['Close'])
+
+        hist['RSI'] = rsi.rsi()
+        hist['MACD'] = macd.macd()
+        hist['MACD_Signal'] = macd.macd_signal()
+        hist['BB_Upper'] = bb.bollinger_hband()
+        hist['BB_Lower'] = bb.bollinger_lband()
+        hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
+        hist['EMA_20'] = hist['Close'].ewm(span=20, adjust=False).mean()
+        return hist
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_signal(rsi, macd, macd_signal):
+    if rsi < 30 and macd > macd_signal:
+        return "Buy"
+    elif rsi > 70 and macd < macd_signal:
+        return "Sell"
+    return "Neutral"
+
+
+def get_signal_strength(rsi, macd, macd_signal, volatility):
+    strength = 5
+    if rsi < 20 or rsi > 80:
+        strength += 2
+    elif rsi < 30 or rsi > 70:
+        strength += 1
+    macd_diff = abs(macd - macd_signal)
+    if macd_diff > 0.5:
+        strength += 2
+    elif macd_diff > 0.2:
+        strength += 1
+    if volatility > 3:
+        strength += 1
+    return min(10, strength)
+
+
+def interpret_signal(signal, rsi, volatility):
+    if signal == "Buy" and rsi < 40:
+        return "Stock looks undervalued and gaining momentum 📈"
+    elif signal == "Sell" and rsi > 60:
+        return "Stock may be overbought and losing strength 📉"
+    elif volatility and volatility > 4:
+        return "High volatility detected – expect larger price swings ⚠️"
+    return "No strong signal – neutral market conditions ⚖️"
+
+
+# ====== Live Mode & Refresh ======
+if live_mode:
+    st.markdown("<div class='live-indicator'>LIVE 🔴</div>", unsafe_allow_html=True)
+    st.session_state["last_live_refresh"] = st.session_state.get("last_live_refresh", time.time())
+    elapsed = time.time() - st.session_state["last_live_refresh"]
+    st.sidebar.write(f"⏱️ Next update in {30 - int(elapsed % 30)}s")
+
+    if elapsed >= 30:
+        st.session_state["last_live_refresh"] = time.time()
+        st.rerun()
+else:
+    st.session_state.pop("last_live_refresh", None)
+
+if auto_refresh and not live_mode:
+    last_update_time = st.session_state.get("last_update_time", time.time())
+    if time.time() - last_update_time > refresh_interval * 60:
+        st.session_state["last_update_time"] = time.time()
+        st.rerun()
+
+# ====== Layout ======
+st.title("📈 Market Intelligence Dashboard")
+st.markdown(f"### {selected_sector} Analysis")
+
+sector_stocks = STOCK_SECTORS[selected_sector]
+selected_stock = custom_symbol if custom_symbol else st.selectbox("Select Stock for Detailed Analysis", sector_stocks)
+
+# ====== Główne kolumny ======
+col1, col2, col3 = st.columns([2, 1, 1])
+
+# ========== COL1: Wykres ==========
+with col1:
+    if selected_stock:
+        hist_data = get_stock_data(selected_stock, period=period_option)
+        if not hist_data.empty:
+            df_mpf = hist_data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+
+            additional_studies = [
+                mpf.make_addplot(hist_data['BB_Upper'], color='gray', linestyle='--', alpha=0.5),
+                mpf.make_addplot(hist_data['BB_Lower'], color='gray', linestyle='--', alpha=0.5),
+                mpf.make_addplot(hist_data['SMA_20'], color='orange'),
+                mpf.make_addplot(hist_data['EMA_20'], color='cyan'),
+                mpf.make_addplot(hist_data['RSI'], panel=1, color='purple', ylabel='RSI'),
+                mpf.make_addplot(hist_data['MACD'], panel=2, color='blue', ylabel='MACD'),
+                mpf.make_addplot(hist_data['MACD_Signal'], panel=2, color='orange')
+            ]
+
+            fig, axlist = mpf.plot(
+                df_mpf,
+                type=chart_map[chart_type],
+                style=style,
+                addplot=additional_studies,
+                volume=True,
+                title=f'\n{selected_stock} Price Analysis ({period_option})',
+                returnfig=True,
+                figsize=(12, 10)
+            )
+
+            axlist[1].axhline(y=70, color='r', linestyle='--', alpha=0.5)
+            axlist[1].axhline(y=30, color='g', linestyle='--', alpha=0.5)
+            st.pyplot(fig)
+
+            csv = hist_data.to_csv().encode('utf-8')
+            st.download_button("💾 Download data as CSV", data=csv, file_name=f"{selected_stock}_data.csv")
+
+# ========== COL2: Analiza techniczna ==========
+with col2:
+    st.subheader("Technical Analysis")
+    if selected_stock and not hist_data.empty:
+        current_price = hist_data['Close'].iloc[-1]
+        daily_change = ((hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-2] - 1) * 100) if len(hist_data) > 1 else 0
+        current_rsi = hist_data['RSI'].iloc[-1]
+        current_macd = hist_data['MACD'].iloc[-1]
+        current_macd_signal = hist_data['MACD_Signal'].iloc[-1]
+        volatility = hist_data['Close'].pct_change().std() * 100
+
+        signal = get_signal(current_rsi, current_macd, current_macd_signal)
+        signal_strength = get_signal_strength(current_rsi, current_macd, current_macd_signal, volatility)
+
+        st.metric("Price (USD)", f"${current_price:.2f}")
+        st.metric("24h Change", f"{daily_change:.2f}%")
+        st.metric("RSI (14)", f"{current_rsi:.1f}")
+        st.metric("MACD", f"{current_macd:.3f}")
+        st.metric("Volatility (30d)", f"{volatility:.1f}%")
+
+        signal_color = {'Buy': 'green', 'Sell': 'red', 'Neutral': 'gray'}
+        st.markdown(
+            f"<div style='padding:10px;border-radius:5px;border:1px solid {signal_color[signal]};'>"
+            f"<h3 style='color:{signal_color[signal]};margin:0;'>Signal: {signal}</h3></div>",
+            unsafe_allow_html=True
+        )
+        st.progress(signal_strength / 10)
+        st.caption(f"Signal Strength: {signal_strength}/10")
+
+        st.info(interpret_signal(signal, current_rsi, volatility))
+
+# ========== COL3: Przegląd sektora ==========
+with col3:
+    st.subheader("Sector Overview")
+
+    sector_data = []
+    for symbol in sector_stocks[:10]:
+        hist = get_stock_data(symbol, period='5d')
+        if not hist.empty and len(hist) >= 2:
+            daily_return = (hist['Close'].iloc[-1] / hist['Close'].iloc[-2] - 1) * 100
+            rsi_value = hist['RSI'].iloc[-1]
+            current_price = hist['Close'].iloc[-1]
+            sector_data.append({'Symbol': symbol, 'Price': current_price, 'Change': daily_return, 'RSI': rsi_value})
+
+    if sector_data:
+        sector_df = pd.DataFrame(sector_data).sort_values('Change', ascending=False)
+        min_rsi, max_rsi = st.slider("Filter RSI Range", 0, 100, (0, 100))
+        sector_df = sector_df[(sector_df["RSI"] >= min_rsi) & (sector_df["RSI"] <= max_rsi)]
+
+        st.dataframe(sector_df.style.format({'Price': '${:.2f}', 'Change': '{:+.2f}%', 'RSI': '{:.1f}'}), height=400)
+
+# ====== Stopka ======
+st.markdown("---")
+st.caption(f"Data source: Yahoo Finance | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
