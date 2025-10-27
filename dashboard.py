@@ -30,6 +30,7 @@ body { background-color: #0e1117; color: #e8e6e3; }
 
 # ====== Sidebar ======
 st.sidebar.title("⚙️ Settings")
+selected_tab = st.sidebar.radio("Select Dashboard", ["📈 Stocks","💰 Crypto","🪙 Metals","📊 Indices"])
 selected_sector = st.sidebar.selectbox("Select Sector", list(STOCK_SECTORS.keys()))
 custom_symbol = st.sidebar.text_input("🔍 Custom symbol (e.g. TSLA)").upper()
 period_option = st.sidebar.select_slider("Select Time Range", options=["7d","30d","3mo","6mo","1y","2y","5y"], value="30d")
@@ -108,11 +109,8 @@ if auto_refresh:
         st.session_state["last_update_time"]=time.time()
         st.experimental_rerun()
 
-# ====== Tabs ======
-tab1,tab2,tab3,tab4 = st.tabs(["📈 Stocks","💰 Crypto","🪙 Metals","📊 Indices"])
-
-# ====== Tab 1: Stocks ======
-with tab1:
+# ====== Render dashboard w zależności od wybranej zakładki ======
+if selected_tab == "📈 Stocks":
     st.header("Stock Dashboard")
     sector_stocks = STOCK_SECTORS[selected_sector]
     selected_stock = custom_symbol if custom_symbol else st.selectbox("Select Stock", sector_stocks)
@@ -182,3 +180,39 @@ with tab1:
         # ====== Pobranie CSV ======
         csv = hist_data.to_csv().encode('utf-8')
         st.download_button("💾 Download Data as CSV", data=csv, file_name=f"{selected_stock}_data.csv")
+
+# ====== Crypto ======
+elif selected_tab == "💰 Crypto":
+    st.header("Crypto Dashboard")
+    crypto_symbol = st.selectbox("Select Crypto", ["BTC-USD","ETH-USD","BNB-USD"])
+    hist_crypto = get_stock_data(crypto_symbol, period=period_option)
+    if hist_crypto.empty:
+        st.warning(f"Not enough data for {crypto_symbol}.")
+    else:
+        st.line_chart(hist_crypto['Close'])
+        csv = hist_crypto.to_csv().encode('utf-8')
+        st.download_button("💾 Download Data as CSV", data=csv, file_name=f"{crypto_symbol}_data.csv")
+
+# ====== Metals ======
+elif selected_tab == "🪙 Metals":
+    st.header("Metals Dashboard")
+    metal_symbol = st.selectbox("Select Metal", ["GC=F","SI=F","HG=F"])  # złoto, srebro, miedź
+    hist_metal = get_stock_data(metal_symbol, period=period_option)
+    if hist_metal.empty:
+        st.warning(f"Not enough data for {metal_symbol}.")
+    else:
+        st.line_chart(hist_metal['Close'])
+        csv = hist_metal.to_csv().encode('utf-8')
+        st.download_button("💾 Download Data as CSV", data=csv, file_name=f"{metal_symbol}_data.csv")
+
+# ====== Indices ======
+elif selected_tab == "📊 Indices":
+    st.header("Indices Dashboard")
+    index_symbol = st.selectbox("Select Index", ["^GSPC","^DJI","^IXIC"])
+    hist_index = get_stock_data(index_symbol, period=period_option)
+    if hist_index.empty:
+        st.warning(f"Not enough data for {index_symbol}.")
+    else:
+        st.line_chart(hist_index['Close'])
+        csv = hist_index.to_csv().encode('utf-8')
+        st.download_button("💾 Download Data as CSV", data=csv, file_name=f"{index_symbol}_data.csv")
