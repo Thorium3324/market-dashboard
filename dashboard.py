@@ -170,18 +170,41 @@ col1, col2, col3 = st.columns([2, 1, 1])
 # ====== COL1 - wykres ======
 with col1:
     if compare_symbols:
-        plt.close('all')
-        fig, axlist = plt.subplots(figsize=(12,6))
-        for sym in compare_symbols:
-            hist = get_stock_data(sym, period=period_option)
-            if not hist.empty:
-                trend = (hist['Close']/hist['Close'].iloc[0]-1)*100
-                axlist.plot(trend, label=sym)
-        axlist.set_title("Stock Comparison (% change)")
-        axlist.set_ylabel("% Change")
-        axlist.legend()
-        st.pyplot(fig)
-
+        if len(compare_symbols) == 1:
+            # Jedna spółka -> wykres świecowy / OHLC
+            hist_data = get_stock_data(compare_symbols[0], period=period_option)
+            if not hist_data.empty:
+                df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
+                additional_studies = [
+                    mpf.make_addplot(hist_data['SMA_20'], color='orange'),
+                    mpf.make_addplot(hist_data['EMA_20'], color='cyan'),
+                    mpf.make_addplot(hist_data['RSI'], panel=1, color='purple', ylabel='RSI'),
+                    mpf.make_addplot(hist_data['MACD'], panel=2, color='blue', ylabel='MACD'),
+                    mpf.make_addplot(hist_data['MACD_Signal'], panel=2, color='orange')
+                ]
+                fig, axlist = mpf.plot(
+                    df_mpf,
+                    type=chart_map[chart_type],
+                    style=style,
+                    addplot=additional_studies,
+                    volume=True,
+                    returnfig=True,
+                    figsize=(12,8)
+                )
+                st.pyplot(fig)
+        else:
+            # Wiele spółek -> linie % zmiany
+            plt.close('all')
+            fig, ax = plt.subplots(figsize=(12,6))
+            for sym in compare_symbols:
+                hist = get_stock_data(sym, period=period_option)
+                if not hist.empty:
+                    trend = (hist['Close']/hist['Close'].iloc[0]-1)*100
+                    ax.plot(trend, label=sym)
+            ax.set_title("Stock Comparison (% change)")
+            ax.set_ylabel("% Change")
+            ax.legend()
+            st.pyplot(fig)
 # ====== COL2 - analiza techniczna + fundamentals ======
 with col2:
     st.subheader("🧠 Technical & Fundamentals")
@@ -250,3 +273,4 @@ with col3:
 # ====== Stopka ======
 st.markdown("---")
 st.caption(f"Data source: Yahoo Finance | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
