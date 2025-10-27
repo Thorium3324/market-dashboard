@@ -9,11 +9,11 @@ from ta.volatility import BollingerBands, AverageTrueRange
 from ta.volume import OnBalanceVolumeIndicator
 import time
 
-# ====== Konfiguracja strony ======
-st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
-st.markdown("<h1 style='text-align: center;'>StockMatrix Pro 4.0</h1>", unsafe_allow_html=True)
+# ====== Strona ======
+st.set_page_config(page_title="StockMatrix Pro", layout="wide")
+st.markdown("<h1 style='text-align:center'>StockMatrix Pro</h1>", unsafe_allow_html=True)
 
-# ====== Lista sektorów i spółek ======
+# ====== Dane sektory/spółki ======
 STOCK_SECTORS = {
     "Technology": ["AAPL","MSFT","NVDA","AMD","INTC"],
     "Biotech": ["MRNA","BIIB","VRTX","REGN"],
@@ -23,7 +23,7 @@ STOCK_SECTORS = {
 }
 
 # ====== Funkcje ======
-def get_stock_data(symbol, period='1mo'):
+def fetch_stock_data(symbol, period='1mo'):
     try:
         df = yf.download(symbol, period=period)
         if df.empty or len(df)<2:
@@ -69,10 +69,10 @@ def get_company_info(symbol):
     except:
         return symbol, f"https://logo.clearbit.com/{symbol.lower()}.com"
 
-# ====== Layout: 3 kolumny ======
+# ====== Layout kolumn ======
 col1, col2, col3 = st.columns([1.5,3,1.5])
 
-# ====== Lewy panel ======
+# ====== Lewy panel: ustawienia ======
 with col1:
     st.subheader("Ustawienia")
     data_type = st.radio("Typ danych:", ["Akcje", "Obligacje", "ETF", "Kryptowaluty", "Kruszcze"])
@@ -106,7 +106,7 @@ with col2:
     st.subheader(f"{sector} - {symbol} ({company_name})")
     st.image(company_logo, width=80)
 
-    data = get_stock_data(symbol, period)
+    data = fetch_stock_data(symbol, period)
     if data.empty:
         st.warning("Brak danych do wykresu. Spróbuj inny okres lub symbol.")
         st.line_chart([0])
@@ -135,7 +135,7 @@ with col2:
         except:
             st.line_chart(data['Close'])
 
-# ====== Prawy panel: analiza finansowa ======
+# ====== Prawy panel: analiza ======
 with col3:
     st.subheader("Analiza techniczna")
     if not data.empty:
