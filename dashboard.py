@@ -1,145 +1,112 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
+import pandas as pd
 import mplfinance as mpf
+from ta.momentum import RSIIndicator
 from ta.trend import MACD, ADXIndicator
-from ta.momentum import RSIIndicator, StochasticOscillator, ROCIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
 from ta.volume import OnBalanceVolumeIndicator
 import time
-import numpy as np
 
-from stock_market_agent_new import STOCK_SECTORS
+# ====== Ustawienia strony ======
+st.set_page_config(page_title="Professional Stock Dashboard", layout="wide")
 
-st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
-
-# ====== Styl ======
-st.markdown("""
-<style>
-body { background-color: #0e1117; color: #e8e6e3; font-family: 'Verdana', sans-serif; }
-.metric-card { padding: 12px; border-radius: 10px; margin-bottom: 12px; background-color: #1c1f26; font-size: 14px; }
-.signal-box { padding: 10px; border-radius: 8px; text-align: center; margin-top:5px; font-size: 16px; color:white; font-weight:bold; }
-</style>
-""", unsafe_allow_html=True)
-
-# ====== Lewy panel ======
-st.sidebar.title("⚙️ Markets & Symbols")
-market_option = st.sidebar.selectbox("Select Market", ["Stocks","Crypto","Metals","Bonds","ETFs"])
-if market_option=="Stocks":
-    selected_sector = st.sidebar.selectbox("Select Sector", list(STOCK_SECTORS.keys()))
-    symbol_list = STOCK_SECTORS[selected_sector]
-elif market_option=="Crypto":
-    symbol_list = ["BTC-USD","ETH-USD","BNB-USD","SOL-USD","ADA-USD"]
-elif market_option=="Metals":
-    symbol_list = ["GC=F","SI=F","PL=F","HG=F"]
-elif market_option=="Bonds":
-    symbol_list = ["^TNX","^IRX"]
-elif market_option=="ETFs":
-    symbol_list = ["SPY","QQQ","IWM","DIA","GLD","SLV"]
-
-custom_symbol = st.sidebar.text_input("Custom symbol (optional)").upper()
-selected_symbol = custom_symbol if custom_symbol else st.sidebar.selectbox("Select Symbol", symbol_list)
-
-period_option = st.sidebar.selectbox("Select Time Range", ["7d","30d","3mo","6mo","1y","2y","5y"], index=1)
-chart_type_option = st.sidebar.radio("Chart Type", ["Candle", "Line", "Bar"])
-theme = st.sidebar.radio("Theme", ["Light", "Dark"])
-style = "yahoo" if theme=="Light" else "nightclouds"
-chart_type_map = {"Candle":"candle", "Line":"line", "Bar":"ohlc"}
-
-live_mode = st.sidebar.checkbox("Live Mode (refresh every 30s)")
-refresh_interval = 30
-
-# ====== Fetch data ======
-@st.cache_data(ttl=60)
-def get_data(symbol, period='30d'):
-    try:
-        stock = yf.Ticker(symbol)
-        hist = stock.history(period=period)
-        if hist.empty or len(hist)<2: return pd.DataFrame()
-        hist = hist.fillna(method='ffill').fillna(method='bfill')
-        # Trend indicators
-        hist['SMA_20'] = hist['Close'].rolling(20).mean()
-        hist['EMA_20'] = hist['Close'].ewm(span=20, adjust=False).mean()
-        hist['ATR'] = AverageTrueRange(hist['High'], hist['Low'], hist['Close'], window=14).average_true_range()
-        hist['ADX'] = ADXIndicator(hist['High'], hist['Low'], hist['Close'], window=14).adx()
-        # Momentum
-        hist['RSI'] = RSIIndicator(hist['Close']).rsi()
-        hist['MACD'] = MACD(hist['Close']).macd()
-        hist['MACD_Signal'] = MACD(hist['Close']).macd_signal()
-        hist['Stoch'] = StochasticOscillator(hist['High'], hist['Low'], hist['Close']).stoch()
-        hist['ROC'] = ROCIndicator(hist['Close']).roc()
-        # Volatility
-        bb = BollingerBands(hist['Close'])
-        hist['BB_Upper'] = bb.bollinger_hband()
-        hist['BB_Lower'] = bb.bollinger_lband()
-        hist['BB_Width'] = hist['BB_Upper'] - hist['BB_Lower']
-        # Volume
-        hist['OBV'] = OnBalanceVolumeIndicator(hist['Close'], hist['Volume']).on_balance_volume()
-        hist['Vol_MA20'] = hist['Volume'].rolling(20).mean()
-        return hist
-    except:
+# ====== Funkcje ======
+def get_stock_data(symbol, period='1mo'):
+    df = yf.download(symbol, period=period)
+    if df.empty or df.shape[0]<2:
         return pd.DataFrame()
+    df = df.fillna(method='ffill').fillna(method='bfill')
+    # Wskaźniki techniczne
+    df['RSI'] = RSIIndicator(df['Close']).rsi()
+    macd = MACD(df['Close'])
+    df['MACD'] = macd.macd()
+    df['MACD_Signal'] = macd.macd_signal()
+    df['SMA_20'] = df['Close'].rolling(20).mean()
+    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    bb = BollingerBands(df['Close'])
+    df['BB_Upper'] = bb.bollinger_hband()
+    df['BB_Lower'] = bb.bollinger_lband()
+    df['ATR'] = AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
+    df['OBV'] = OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
+    df['ADX'] = ADXIndicator(df['High'], df['Low'], df['Close']).adx()
+    return df
 
-# ====== Main layout ======
-st.title("📊 StockMatrix Pro 4.0")
-
-if live_mode:
-    if 'last_refresh' not in st.session_state:
-        st.session_state['last_refresh'] = time.time()
-    if time.time() - st.session_state['last_refresh'] >= refresh_interval:
-        st.session_state['last_refresh'] = time.time()
-        st.experimental_rerun()
-
-hist_data = get_data(selected_symbol, period=period_option)
-col1, col2 = st.columns([2,1])
-
-# ----- Wykres -----
-with col1:
-    if hist_data.empty:
-        st.warning(f"No data for {selected_symbol}")
+def get_signal(rsi, macd, macd_signal):
+    if rsi < 30 and macd > macd_signal:
+        return "BUY"
+    elif rsi > 70 and macd < macd_signal:
+        return "SELL"
     else:
-        df_mpf = hist_data[['Open','High','Low','Close','Volume']]
+        return "HOLD"
+
+def signal_color(signal):
+    return {"BUY": "green", "SELL": "red", "HOLD": "gray"}.get(signal, "gray")
+
+def get_company_logo(symbol):
+    return f'https://logo.clearbit.com/{symbol.lower()}.com'
+
+# ====== Sidebar ======
+with st.sidebar:
+    st.header("Ustawienia")
+    data_type = st.selectbox("Typ danych:", ["Akcje", "Kryptowaluty", "Metale", "ETF", "Obligacje"])
+    symbol = st.text_input("Symbol (np. TSLA, AAPL):", "TSLA")
+    period = st.selectbox("Okres danych:", ["7d","30d","3mo","6mo","1y","2y","5y"])
+    chart_type = st.selectbox("Typ wykresu:", ["Candle", "Line", "OHLC"])
+    chart_map = {"Candle":"candle", "Line":"line", "OHLC":"ohlc"}
+
+# ====== Dane ======
+data = get_stock_data(symbol, period)
+if data.empty:
+    st.warning("Nie udało się pobrać danych.")
+else:
+    # ====== Layout główny ======
+    col1, col2 = st.columns([2,1])
+
+    # Lewa kolumna: wykres
+    with col1:
+        st.subheader(f"{symbol} - Wykres")
+        df_plot = data[['Open','High','Low','Close','Volume']].copy()
         addplots=[]
-        for col,color,panel,ylabel in [('SMA_20','orange',0,''), ('EMA_20','cyan',0,''), ('RSI','purple',1,'RSI'), ('MACD','blue',2,'MACD'), ('MACD_Signal','orange',2,'')]:
-            if col in hist_data.columns and hist_data[col].notna().any():
-                addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
+        for col,color,panel,ylabel in [
+            ('SMA_20','orange',0,''), 
+            ('EMA_20','cyan',0,''),
+            ('RSI','purple',1,'RSI'),
+            ('MACD','blue',2,'MACD'),
+            ('MACD_Signal','orange',2,'')
+        ]:
+            if col in data.columns:
+                addplots.append(mpf.make_addplot(data[col], panel=panel, color=color, ylabel=ylabel))
+        fig, axlist = mpf.plot(
+            df_plot,
+            type=chart_map[chart_type],
+            style='charles',
+            volume=True,
+            returnfig=True,
+            addplot=addplots,
+            figsize=(10,5)
+        )
+        st.pyplot(fig)
 
-        try:
-            fig, axlist = mpf.plot(df_mpf, type=chart_type_map[chart_type_option], style=style,
-                                   addplot=addplots if addplots else None, volume=True, returnfig=True, figsize=(8,5))
-            st.pyplot(fig)
-        except Exception as e:
-            st.error(f"Error rendering chart: {e}")
-
-# ----- Prawy panel: wskaźniki -----
-with col2:
-    if not hist_data.empty:
-        current_price = hist_data['Close'].iloc[-1]
-        prev_price = hist_data['Close'].iloc[-2]
-        daily_change = ((current_price/prev_price)-1)*100
-
-        # Sygnał
-        if hist_data['RSI'].iloc[-1]<30 and hist_data['MACD'].iloc[-1]>hist_data['MACD_Signal'].iloc[-1]:
-            signal_text = "BUY"
-            signal_color = "green"
-        elif hist_data['RSI'].iloc[-1]>70 and hist_data['MACD'].iloc[-1]<hist_data['MACD_Signal'].iloc[-1]:
-            signal_text = "SELL"
-            signal_color = "red"
-        else:
-            signal_text = "HOLD"
-            signal_color = "gray"
-        change_color = "green" if daily_change>0 else "red" if daily_change<0 else "white"
-
-        # Wyświetlanie wskaźników
-        st.markdown(f"""
-        <div class='metric-card'><b>Price:</b> <span style='color:{change_color}'>${current_price:.2f} ({daily_change:+.2f}%)</span></div>
-        <div class='metric-card'><b>Signal:</b> <span class='signal-box' style='background-color:{signal_color};'>{signal_text}</span></div>
-        <div class='metric-card'><b>RSI (14):</b> {hist_data['RSI'].iloc[-1]:.1f}</div>
-        <div class='metric-card'><b>MACD:</b> {hist_data['MACD'].iloc[-1]:.3f} | Signal: {hist_data['MACD_Signal'].iloc[-1]:.3f}</div>
-        <div class='metric-card'><b>SMA 20:</b> {hist_data['SMA_20'].iloc[-1]:.2f} | EMA 20: {hist_data['EMA_20'].iloc[-1]:.2f}</div>
-        <div class='metric-card'><b>Bollinger Bands:</b> {hist_data['BB_Lower'].iloc[-1]:.2f} - {hist_data['BB_Upper'].iloc[-1]:.2f} | Width: {hist_data['BB_Width'].iloc[-1]:.2f}</div>
-        <div class='metric-card'><b>ATR:</b> {hist_data['ATR'].iloc[-1]:.2f} | ADX: {hist_data['ADX'].iloc[-1]:.2f}</div>
-        <div class='metric-card'><b>Stochastic:</b> {hist_data['Stoch'].iloc[-1]:.2f} | ROC: {hist_data['ROC'].iloc[-1]:.2f}</div>
-        <div class='metric-card'><b>OBV:</b> {hist_data['OBV'].iloc[-1]:.0f} | Vol MA20: {hist_data['Vol_MA20'].iloc[-1]:.0f}</div>
-        <div class='metric-card'><b>52-Week High/Low:</b> {hist_data['Close'].max():.2f} / {hist_data['Close'].min():.2f}</div>
-        """, unsafe_allow_html=True)
+    # Prawa kolumna: analiza techniczna
+    with col2:
+        st.subheader("Analiza techniczna")
+        logo_url = get_company_logo(symbol)
+        st.image(logo_url, width=120)
+        current_price = data['Close'].iloc[-1]
+        prev_price = data['Close'].iloc[-2]
+        daily_change = ((current_price - prev_price)/prev_price)*100
+        st.markdown(f"**Cena:** ${current_price:.2f}")
+        st.markdown(f"**Zmiana dzienna:** {daily_change:+.2f}%")
+        rsi = data['RSI'].iloc[-1]
+        macd_val = data['MACD'].iloc[-1]
+        macd_signal_val = data['MACD_Signal'].iloc[-1]
+        signal = get_signal(rsi, macd_val, macd_signal_val)
+        st.markdown(f"**RSI (14):** {rsi:.2f}")
+        st.markdown(f"**MACD:** {macd_val:.2f} | **MACD Signal:** {macd_signal_val:.2f}")
+        st.markdown(f"**ATR:** {data['ATR'].iloc[-1]:.2f}")
+        st.markdown(f"**OBV:** {data['OBV'].iloc[-1]:.2f}")
+        st.markdown(f"**ADX:** {data['ADX'].iloc[-1]:.2f}")
+        st.markdown(f"**Bollinger Upper:** {data['BB_Upper'].iloc[-1]:.2f}")
+        st.markdown(f"**Bollinger Lower:** {data['BB_Lower'].iloc[-1]:.2f}")
+        st.markdown(f"<span style='color:{signal_color(signal)}; font-weight:bold;'>Sygnał: {signal}</span>", unsafe_allow_html=True)
