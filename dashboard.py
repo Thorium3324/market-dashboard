@@ -16,10 +16,9 @@ st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
 st.markdown("""
 <style>
 body { background-color: #0e1117; color: #e8e6e3; font-family: 'Verdana', sans-serif; }
-.metric-card { padding: 12px; border-radius: 10px; margin-bottom: 12px; box-shadow: 2px 2px 15px rgba(0,0,0,0.3); font-size: 14px; }
-.signal-card { padding: 15px; border-radius: 12px; color: white; text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 12px;}
+.metric-card { padding: 12px; border-radius: 10px; margin-bottom: 12px; background-color: #1c1f26; box-shadow: 2px 2px 12px rgba(0,0,0,0.3); font-size: 14px; }
+.signal-box { padding: 10px; border-radius: 8px; font-weight: bold; text-align: center; margin-top:5px; font-size: 16px; }
 h2, h3, h4 { color: #ffffff; font-weight: normal; }
-.card-row { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -28,9 +27,12 @@ st.sidebar.title("⚙️ Settings")
 selected_sector = st.sidebar.selectbox("Select Sector", list(STOCK_SECTORS.keys()))
 custom_symbol = st.sidebar.text_input("Custom symbol (e.g. TSLA)").upper()
 period_option = st.sidebar.select_slider("Time Range", options=["7d","30d","3mo","6mo","1y","2y","5y"], value="30d")
-chart_type = st.sidebar.radio("Chart Type", ["Candle", "Line", "Bar"])
+chart_type_option = st.sidebar.radio("Chart Type", ["Candle", "Line", "Bar"])
 theme = st.sidebar.radio("Theme", ["Light", "Dark"])
 style = "yahoo" if theme=="Light" else "nightclouds"
+
+# Map user-friendly chart types to mplfinance types
+chart_type_map = {"Candle": "candle", "Line": "line", "Bar": "ohlc"}
 
 # ====== Fetch stock data ======
 @st.cache_data(ttl=60)
@@ -54,7 +56,7 @@ def get_stock_data(symbol, period='30d'):
         return pd.DataFrame()
 
 # ====== Main Layout ======
-st.title("📊 StockMatrix Pro 4.0 Dashboard")
+st.title("📊 StockMatrix Pro 4.0")
 
 sector_stocks = STOCK_SECTORS[selected_sector]
 selected_stock = custom_symbol if custom_symbol else st.selectbox("Select Stock", sector_stocks)
@@ -73,7 +75,7 @@ else:
             if col in hist_data.columns and hist_data[col].notna().any():
                 addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
         try:
-            fig, axlist = mpf.plot(df_mpf, type=chart_type.lower(), style=style, addplot=addplots if addplots else None,
+            fig, axlist = mpf.plot(df_mpf, type=chart_type_map[chart_type_option], style=style, addplot=addplots if addplots else None,
                                    volume=True, returnfig=True, figsize=(8,5))
             st.pyplot(fig)
         except Exception as e:
@@ -111,8 +113,6 @@ else:
         ema_20 = hist_data['EMA_20'].iloc[-1]
         bb_upper = hist_data['BB_Upper'].iloc[-1]
         bb_lower = hist_data['BB_Lower'].iloc[-1]
-        weekly_change = ((hist_data['Close'].iloc[-1]/hist_data['Close'].iloc[-5])-1)*100 if len(hist_data)>=5 else np.nan
-        price_range = hist_data['High'].max()-hist_data['Low'].min()
 
         # Sygnał rynkowy
         if current_rsi<30 and current_macd>current_macd_signal:
@@ -125,21 +125,16 @@ else:
             signal_text = "HOLD"
             signal_color = "gray"
 
-        # Kolory zmiany
         change_color = "green" if daily_change>0 else "red" if daily_change<0 else "white"
-        weekly_color = "green" if weekly_change>0 else "red" if weekly_change<0 else "white"
 
-        # Karty w panelu
         st.markdown(f"""
-        <div class='card-row'>
-            <div class='metric-card' style='background: #1c1f26; width:100%;'><b>Price:</b> <span style='color:{change_color}'>${current_price:.2f} ({daily_change:+.2f}%)</span></div>
-            <div class='metric-card' style='background: #1c1f26; width:100%;'><b>Signal:</b> <span style='background-color:{signal_color}; padding:4px 8px; border-radius:8px;'>{signal_text}</span></div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #6a0dad, #8a2be2); width:100%;'>RSI (14): {current_rsi:.1f}</div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #1e90ff, #00bfff); width:100%;'>MACD: {current_macd:.3f} | Signal: {current_macd_signal:.3f}</div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #ffa500, #ff4500); width:100%;'>SMA 20: {sma_20:.2f} | EMA 20: {ema_20:.2f}</div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #32cd32, #228b22); width:100%;'>Bollinger Bands: {bb_lower:.2f} - {bb_upper:.2f}</div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #ff6347, #ff4500); width:100%;'>Volatility (30d): {volatility:.2f}%</div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #3cb371, #2e8b57); width:100%;'>Weekly Change: <span style='color:{weekly_color}'>{weekly_change:+.2f}%</span></div>
-            <div class='metric-card' style='background: linear-gradient(90deg, #6b8e23, #556b2f); width:100%;'>Price Range (High-Low): {price_range:.2f}</div>
+        <div class='metric-card'>
+            Price: <span style='color:{change_color}'>${current_price:.2f} ({daily_change:+.2f}%)</span><br>
+            Signal: <span class='signal-box' style='background-color:{signal_color};'>{signal_text}</span><br>
+            RSI (14): {current_rsi:.1f}<br>
+            MACD: {current_macd:.3f} | Signal: {current_macd_signal:.3f}<br>
+            SMA 20: {sma_20:.2f} | EMA 20: {ema_20:.2f}<br>
+            Bollinger Bands: {bb_lower:.2f} - {bb_upper:.2f}<br>
+            Volatility (30d): {volatility:.2f}%
         </div>
         """, unsafe_allow_html=True)
