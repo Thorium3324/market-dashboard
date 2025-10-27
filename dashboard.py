@@ -75,7 +75,7 @@ def get_data(symbol, period='30d'):
         return pd.DataFrame()
 
 # ====== Main layout ======
-st.title("📊 StockMatrix Pro 4.0")
+st.title("📊 StockMatrix")
 
 # Dynamic refresh
 if live_mode:
@@ -143,4 +143,5 @@ with col2:
         <div class='metric-card'><b>Bollinger Bands:</b> {bb_lower:.2f} - {bb_upper:.2f}</div>
         <div class='metric-card'><b>Volatility (30d):</b> {volatility:.2f}%</div>
         """, unsafe_allow_html=True)
+
 
