@@ -48,7 +48,7 @@ elif refresh_unit=="Hours":
     refresh_seconds = refresh_value * 3600
 else:
     refresh_value = st.sidebar.slider("Refresh Interval", 1, 7, 1)
-    refresh_seconds = refresh_value * 86400  # dni w sekundach
+    refresh_seconds = refresh_value * 86400
 auto_refresh = st.sidebar.toggle("Enable Auto-Refresh", True)
 live_mode = st.sidebar.toggle("🚀 Enable Live Mode (every 30s)", False)
 
@@ -142,7 +142,6 @@ with tab1:
             returnfig=True,
             figsize=(12,8)
         )
-        # ====== Linie poziome RSI tylko jeśli panel istnieje ======
         if 'RSI' in hist_data.columns and len(axlist)>1:
             try:
                 axlist[1].axhline(70,color='r',linestyle='--',alpha=0.5)
