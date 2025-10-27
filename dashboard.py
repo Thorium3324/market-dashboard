@@ -14,7 +14,7 @@ import time
 from stock_market_agent_new import STOCK_SECTORS
 
 # ====== Konfiguracja strony ======
-st.set_page_config(page_title="StockMatrix Pro 3.0", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide", initial_sidebar_state="collapsed")
 
 # ====== Styl ======
 st.markdown("""
@@ -52,7 +52,7 @@ else:
 auto_refresh = st.sidebar.toggle("Enable Auto-Refresh", True)
 live_mode = st.sidebar.toggle("🚀 Enable Live Mode (every 30s)", False)
 
-# ====== Live Ticker Bar ======
+# ====== Ticker bar ======
 indices = {"S&P500":"^GSPC","NASDAQ":"^IXIC","DOW":"^DJI","BTC":"BTC-USD"}
 ticker_data = {}
 for name,symbol in indices.items():
@@ -87,7 +87,7 @@ def get_stock_data(symbol, period='30d'):
     except:
         return pd.DataFrame()
 
-# ====== Wskaźniki i sygnały ======
+# ====== Sygnały i analiza ======
 def get_signal(rsi, macd, macd_signal):
     if rsi<30 and macd>macd_signal: return "Buy"
     elif rsi>70 and macd<macd_signal: return "Sell"
@@ -109,7 +109,7 @@ def interpret_signal(signal,rsi,volatility):
     elif volatility>4: return "⚠️ High volatility – expect swings."
     return "⚖️ Neutral market."
 
-# ====== Live Mode / Auto-refresh ======
+# ====== Auto-refresh / Live ======
 if live_mode:
     st.markdown("<div class='live-indicator'>LIVE 🔴</div>", unsafe_allow_html=True)
     st.session_state["last_live_refresh"] = st.session_state.get("last_live_refresh", time.time())
@@ -125,85 +125,41 @@ if auto_refresh:
 # ====== Tabs ======
 tab1,tab2,tab3,tab4 = st.tabs(["📈 Stocks","💰 Crypto","🪙 Metals","📊 Indices"])
 
-# -------- Tab 1: Stocks --------
+# ====== Tab 1: Stocks ======
 with tab1:
     st.header("Stock Dashboard")
     sector_stocks = STOCK_SECTORS[selected_sector]
     selected_stock = custom_symbol if custom_symbol else st.selectbox("Select Stock", sector_stocks)
-    compare_symbols = st.multiselect("Compare with...", sector_stocks, default=[selected_stock] if selected_stock else [])
 
-    col1,col2,col3 = st.columns([2,1,1])
-    with col1:
-        for sym in compare_symbols:
-            hist_data = get_stock_data(sym, period=period_option)
-            if hist_data.empty or hist_data.shape[0]<2:
-                st.warning(f"Not enough data to plot {sym}.")
-                continue
-            df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
-            addplots=[]
-            if 'SMA_20' in hist_data and hist_data['SMA_20'].notna().any():
-                addplots.append(mpf.make_addplot(hist_data['SMA_20'], color='orange'))
-            if 'EMA_20' in hist_data and hist_data['EMA_20'].notna().any():
-                addplots.append(mpf.make_addplot(hist_data['EMA_20'], color='cyan'))
-            if 'RSI' in hist_data and hist_data['RSI'].notna().any():
-                addplots.append(mpf.make_addplot(hist_data['RSI'], panel=1, color='purple', ylabel='RSI'))
-            if 'MACD' in hist_data and hist_data['MACD'].notna().any():
-                addplots.append(mpf.make_addplot(hist_data['MACD'], panel=2, color='blue', ylabel='MACD'))
-            if 'MACD_Signal' in hist_data and hist_data['MACD_Signal'].notna().any():
-                addplots.append(mpf.make_addplot(hist_data['MACD_Signal'], panel=2, color='orange'))
-            fig, axlist = mpf.plot(
-                df_mpf,
-                type=chart_map[chart_type],
-                style=style,
-                addplot=addplots if addplots else None,
-                volume=True,
-                returnfig=True,
-                figsize=(12,8)
-            )
-            st.pyplot(fig)
-
-# -------- Tab 2: Crypto --------
-with tab2:
-    st.header("Cryptocurrency Dashboard")
-    crypto_symbols = ["BTC-USD","ETH-USD","BNB-USD","XRP-USD"]
-    crypto_choice = st.selectbox("Select crypto", crypto_symbols)
-    hist = get_stock_data(crypto_choice, period=period_option)
-    if not hist.empty:
-        plt.close('all')
-        fig,ax=plt.subplots(figsize=(12,6))
-        ax.plot(hist['Close'], label=crypto_choice)
-        ax.set_title(f"{crypto_choice} Price")
-        ax.legend()
+    hist_data = get_stock_data(selected_stock, period=period_option)
+    if hist_data.empty or hist_data.shape[0]<2:
+        st.warning(f"Not enough data for {selected_stock}.")
+    else:
+        # ====== Wykres ======
+        df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
+        addplots=[]
+        for col,color,panel,ylabel in [('SMA_20','orange',0,''),('EMA_20','cyan',0,''),('RSI','purple',1,'RSI'),('MACD','blue',2,'MACD'),('MACD_Signal','orange',2,'')]:
+            if col in hist_data and hist_data[col].notna().any():
+                addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
+        fig,axlist=mpf.plot(df_mpf,type=chart_map[chart_type],style=style,addplot=addplots if addplots else None,volume=True,returnfig=True,figsize=(12,8))
+        if len(axlist)>1:
+            axlist[1].axhline(70,color='r',linestyle='--',alpha=0.5)
+            axlist[1].axhline(30,color='g',linestyle='--',alpha=0.5)
         st.pyplot(fig)
 
-# -------- Tab 3: Metals --------
-with tab3:
-    st.header("Metals Dashboard")
-    metal_symbols = {"Gold":"GC=F","Silver":"SI=F","Platinum":"PL=F"}
-    metal_choice = st.selectbox("Select metal", list(metal_symbols.keys()))
-    hist = get_stock_data(metal_symbols[metal_choice], period="1y")
-    if not hist.empty:
-        plt.close('all')
-        fig,ax=plt.subplots(figsize=(12,6))
-        ax.plot(hist['Close'], label=metal_choice)
-        ax.set_title(f"{metal_choice} Price")
-        ax.legend()
-        st.pyplot(fig)
-
-# -------- Tab 4: Indices --------
-with tab4:
-    st.header("Market Indices")
-    index_symbols = {"S&P500":"^GSPC","NASDAQ":"^IXIC","DOW":"^DJI"}
-    index_choice = st.selectbox("Select index", list(index_symbols.keys()))
-    hist = get_stock_data(index_symbols[index_choice], period="1y")
-    if not hist.empty:
-        plt.close('all')
-        fig,ax=plt.subplots(figsize=(12,6))
-        ax.plot(hist['Close'], label=index_choice)
-        ax.set_title(f"{index_choice} Index")
-        ax.legend()
-        st.pyplot(fig)
-
-# ====== Stopka ======
-st.markdown("---")
-st.caption(f"Data source: Yahoo Finance | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        # ====== Analiza techniczna ======
+        col1,col2=st.columns([1,1])
+        with col1:
+            current_price = hist_data['Close'].iloc[-1]
+            daily_change = ((hist_data['Close'].iloc[-1]/hist_data['Close'].iloc[-2]-1)*100) if len(hist_data)>1 else 0
+            st.metric("Price (USD)", f"${current_price:.2f}")
+            st.metric("24h Change", f"{daily_change:+.2f}%")
+        with col2:
+            current_rsi = hist_data['RSI'].iloc[-1]
+            current_macd = hist_data['MACD'].iloc[-1]
+            current_macd_signal = hist_data['MACD_Signal'].iloc[-1]
+            volatility = hist_data['Close'].pct_change().std()*100
+            signal = get_signal(current_rsi,current_macd,current_macd_signal)
+            signal_strength = get_signal_strength(current_rsi,current_macd,current_macd_signal,volatility)
+            signal_color = {'Buy':'green','Sell':'red','Neutral':'gray'}
+           
