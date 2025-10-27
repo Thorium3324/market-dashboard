@@ -4,16 +4,19 @@ import pandas as pd
 import numpy as np
 import mplfinance as mpf
 from ta.momentum import RSIIndicator
-from ta.trend import MACD
+from ta.trend import MACD, ADXIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
-from ta.volume import OnBalanceVolumeIndicator
+from ta.volume import OnBalanceVolumeIndicator, MFIIndicator
 import time
+from PIL import Image
+import requests
+from io import BytesIO
 
 # ====== Strona ======
 st.set_page_config(page_title="StockMatrix Pro", layout="wide")
 st.markdown("<h1 style='text-align:center'>StockMatrix Pro</h1>", unsafe_allow_html=True)
 
-# ====== Dane sektory/spółki ======
+# ====== Dane sektor/spółki ======
 STOCK_SECTORS = {
     "Technology": ["AAPL","MSFT","NVDA","AMD","INTC"],
     "Biotech": ["MRNA","BIIB","VRTX","REGN"],
@@ -43,6 +46,8 @@ def fetch_stock_data(symbol, period='1mo'):
         df['BB_Lower'] = bb.bollinger_lband()
         df['ATR'] = AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
         df['OBV'] = OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
+        df['ADX'] = ADXIndicator(df['High'], df['Low'], df['Close']).adx()
+        df['MFI'] = MFIIndicator(df['High'], df['Low'], df['Close'], df['Volume']).money_flow_index()
         return df
     except:
         return pd.DataFrame()
@@ -104,7 +109,12 @@ if auto_refresh:
 with col2:
     company_name, company_logo = get_company_info(symbol)
     st.subheader(f"{sector} - {symbol} ({company_name})")
-    st.image(company_logo, width=80)
+    try:
+        response = requests.get(company_logo)
+        img = Image.open(BytesIO(response.content))
+        st.image(img, width=80)
+    except:
+        st.text(company_logo)
 
     data = fetch_stock_data(symbol, period)
     if data.empty:
@@ -147,6 +157,8 @@ with col3:
         macd_signal_val = data['MACD_Signal'].iloc[-1] if 'MACD_Signal' in data.columns else np.nan
         atr = data['ATR'].iloc[-1] if 'ATR' in data.columns else np.nan
         obv = data['OBV'].iloc[-1] if 'OBV' in data.columns else np.nan
+        adx = data['ADX'].iloc[-1] if 'ADX' in data.columns else np.nan
+        mfi = data['MFI'].iloc[-1] if 'MFI' in data.columns else np.nan
         bb_upper = data['BB_Upper'].iloc[-1] if 'BB_Upper' in data.columns else np.nan
         bb_lower = data['BB_Lower'].iloc[-1] if 'BB_Lower' in data.columns else np.nan
         signal = get_signal(rsi, macd_val, macd_signal_val)
@@ -156,8 +168,10 @@ with col3:
         st.markdown(f"**RSI (14):** {rsi:.2f}")
         st.markdown(f"**MACD:** {macd_val:.2f} | **MACD Signal:** {macd_signal_val:.2f}")
         st.markdown(f"**ATR:** {atr:.2f} | **OBV:** {obv:.0f}")
-        st.markdown(f"**BB Upper / Lower:** {bb_upper:.2f} / {bb_lower:.2f}")
-        st.markdown(f"<span style='color:{signal_color(signal)}; font-weight:bold;'>Sygnał: {signal}</span>", unsafe_allow_html=True)
+        st.markdown(f"**ADX:** {adx:.2f} | **MFI:** {mfi:.2f}")
+        st.markdown(f"**BB Upper:** {bb_upper:.2f} | **BB Lower:** {bb_lower:.2f}")
+        st.markdown(f"**Sygnał:** <span style='color:{signal_color(signal)}'>{signal}</span>", unsafe_allow_html=True)
+        st.markdown(f"**Sektor:** {sector}")
 
-# ====== Stopka ======
-st.markdown("<hr><p style='text-align:center;font-size:12px;'>Dane pobrano z Yahoo Finance</p>", unsafe_allow_html=True)
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown("<small>Źródła danych: Yahoo Finance</small>", unsafe_allow_html=True)
