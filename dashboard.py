@@ -6,7 +6,6 @@ from ta.momentum import RSIIndicator
 from ta.trend import MACD, ADXIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
 from ta.volume import OnBalanceVolumeIndicator
-import time
 
 # ====== Ustawienia strony ======
 st.set_page_config(page_title="Professional Stock Dashboard", layout="wide")
@@ -14,25 +13,37 @@ st.set_page_config(page_title="Professional Stock Dashboard", layout="wide")
 # ====== Funkcje ======
 def get_stock_data(symbol, period='1mo'):
     df = yf.download(symbol, period=period)
-    if df.empty or df.shape[0]<2:
+    if df.empty or df.shape[0]<20:  # minimalna ilość danych dla większości wskaźników
         return pd.DataFrame()
-    df = df.fillna(method='ffill').fillna(method='bfill')
-    # Wskaźniki techniczne
-    df['RSI'] = RSIIndicator(df['Close']).rsi()
-    macd = MACD(df['Close'])
-    df['MACD'] = macd.macd()
-    df['MACD_Signal'] = macd.macd_signal()
-    df['SMA_20'] = df['Close'].rolling(20).mean()
-    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    bb = BollingerBands(df['Close'])
-    df['BB_Upper'] = bb.bollinger_hband()
-    df['BB_Lower'] = bb.bollinger_lband()
-    df['ATR'] = AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
-    df['OBV'] = OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
-    df['ADX'] = ADXIndicator(df['High'], df['Low'], df['Close']).adx()
+    
+    # Reset indeksu, upewnij się, że Close jest float
+    df = df.reset_index()
+    df = df[['Date','Open','High','Low','Close','Volume']]
+    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+    df = df.dropna(subset=['Close'])
+    df = df.set_index('Date')
+    
+    # Obliczenie wskaźników technicznych z zabezpieczeniem
+    try:
+        df['RSI'] = RSIIndicator(df['Close'], window=14).rsi()
+        macd = MACD(df['Close'], window_slow=26, window_fast=12, window_sign=9)
+        df['MACD'] = macd.macd()
+        df['MACD_Signal'] = macd.macd_signal()
+        df['SMA_20'] = df['Close'].rolling(20).mean()
+        df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+        bb = BollingerBands(df['Close'], window=20, window_dev=2)
+        df['BB_Upper'] = bb.bollinger_hband()
+        df['BB_Lower'] = bb.bollinger_lband()
+        df['ATR'] = AverageTrueRange(df['High'], df['Low'], df['Close'], window=14).average_true_range()
+        df['OBV'] = OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
+        df['ADX'] = ADXIndicator(df['High'], df['Low'], df['Close'], window=14).adx()
+    except Exception as e:
+        st.warning(f"Nie udało się obliczyć wskaźników technicznych: {e}")
     return df
 
 def get_signal(rsi, macd, macd_signal):
+    if pd.isna(rsi) or pd.isna(macd) or pd.isna(macd_signal):
+        return "HOLD"
     if rsi < 30 and macd > macd_signal:
         return "BUY"
     elif rsi > 70 and macd < macd_signal:
@@ -55,12 +66,13 @@ with st.sidebar:
     chart_type = st.selectbox("Typ wykresu:", ["Candle", "Line", "OHLC"])
     chart_map = {"Candle":"candle", "Line":"line", "OHLC":"ohlc"}
 
-# ====== Dane ======
+# ====== Pobranie danych ======
 data = get_stock_data(symbol, period)
+
 if data.empty:
-    st.warning("Nie udało się pobrać danych.")
+    st.warning("Nie udało się pobrać wystarczającej liczby danych dla wybranego okresu.")
 else:
-    # ====== Layout główny ======
+    # ====== Layout ======
     col1, col2 = st.columns([2,1])
 
     # Lewa kolumna: wykres
@@ -75,7 +87,7 @@ else:
             ('MACD','blue',2,'MACD'),
             ('MACD_Signal','orange',2,'')
         ]:
-            if col in data.columns:
+            if col in data.columns and data[col].notna().any():
                 addplots.append(mpf.make_addplot(data[col], panel=panel, color=color, ylabel=ylabel))
         fig, axlist = mpf.plot(
             df_plot,
@@ -104,9 +116,11 @@ else:
         signal = get_signal(rsi, macd_val, macd_signal_val)
         st.markdown(f"**RSI (14):** {rsi:.2f}")
         st.markdown(f"**MACD:** {macd_val:.2f} | **MACD Signal:** {macd_signal_val:.2f}")
+        st.markdown(f"**SMA (20):** {data['SMA_20'].iloc[-1]:.2f}")
+        st.markdown(f"**EMA (20):** {data['EMA_20'].iloc[-1]:.2f}")
+        st.markdown(f"**Bollinger Upper:** {data['BB_Upper'].iloc[-1]:.2f}")
+        st.markdown(f"**Bollinger Lower:** {data['BB_Lower'].iloc[-1]:.2f}")
         st.markdown(f"**ATR:** {data['ATR'].iloc[-1]:.2f}")
         st.markdown(f"**OBV:** {data['OBV'].iloc[-1]:.2f}")
         st.markdown(f"**ADX:** {data['ADX'].iloc[-1]:.2f}")
-        st.markdown(f"**Bollinger Upper:** {data['BB_Upper'].iloc[-1]:.2f}")
-        st.markdown(f"**Bollinger Lower:** {data['BB_Lower'].iloc[-1]:.2f}")
         st.markdown(f"<span style='color:{signal_color(signal)}; font-weight:bold;'>Sygnał: {signal}</span>", unsafe_allow_html=True)
