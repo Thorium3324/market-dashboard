@@ -10,7 +10,7 @@ import numpy as np
 
 from stock_market_agent_new import STOCK_SECTORS
 
-st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
+st.set_page_config(page_title="StockMatrix", layout="wide")
 
 # ====== Styl ======
 st.markdown("""
@@ -143,3 +143,4 @@ with col2:
         <div class='metric-card'><b>Bollinger Bands:</b> {bb_lower:.2f} - {bb_upper:.2f}</div>
         <div class='metric-card'><b>Volatility (30d):</b> {volatility:.2f}%</div>
         """, unsafe_allow_html=True)
+
