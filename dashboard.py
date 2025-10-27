@@ -87,6 +87,7 @@ def get_stock_data(symbol, period='30d'):
     except:
         return pd.DataFrame()
 
+# ====== Wskaźniki i sygnały ======
 def get_signal(rsi, macd, macd_signal):
     if rsi<30 and macd>macd_signal: return "Buy"
     elif rsi>70 and macd<macd_signal: return "Sell"
@@ -135,18 +136,31 @@ with tab1:
     with col1:
         for sym in compare_symbols:
             hist_data = get_stock_data(sym, period=period_option)
-            if not hist_data.empty and hist_data.shape[0]>=20:
-                df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
-                addplots=[]
-                if 'SMA_20' in hist_data: addplots.append(mpf.make_addplot(hist_data['SMA_20'],color='orange'))
-                if 'EMA_20' in hist_data: addplots.append(mpf.make_addplot(hist_data['EMA_20'],color='cyan'))
-                if 'RSI' in hist_data: addplots.append(mpf.make_addplot(hist_data['RSI'],panel=1,color='purple',ylabel='RSI'))
-                if 'MACD' in hist_data: addplots.append(mpf.make_addplot(hist_data['MACD'],panel=2,color='blue',ylabel='MACD'))
-                if 'MACD_Signal' in hist_data: addplots.append(mpf.make_addplot(hist_data['MACD_Signal'],panel=2,color='orange'))
-                fig,axlist=mpf.plot(df_mpf,type=chart_map[chart_type],style=style,addplot=addplots if addplots else None,volume=True,returnfig=True,figsize=(12,8))
-                st.pyplot(fig)
-            else:
+            if hist_data.empty or hist_data.shape[0]<2:
                 st.warning(f"Not enough data to plot {sym}.")
+                continue
+            df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
+            addplots=[]
+            if 'SMA_20' in hist_data and hist_data['SMA_20'].notna().any():
+                addplots.append(mpf.make_addplot(hist_data['SMA_20'], color='orange'))
+            if 'EMA_20' in hist_data and hist_data['EMA_20'].notna().any():
+                addplots.append(mpf.make_addplot(hist_data['EMA_20'], color='cyan'))
+            if 'RSI' in hist_data and hist_data['RSI'].notna().any():
+                addplots.append(mpf.make_addplot(hist_data['RSI'], panel=1, color='purple', ylabel='RSI'))
+            if 'MACD' in hist_data and hist_data['MACD'].notna().any():
+                addplots.append(mpf.make_addplot(hist_data['MACD'], panel=2, color='blue', ylabel='MACD'))
+            if 'MACD_Signal' in hist_data and hist_data['MACD_Signal'].notna().any():
+                addplots.append(mpf.make_addplot(hist_data['MACD_Signal'], panel=2, color='orange'))
+            fig, axlist = mpf.plot(
+                df_mpf,
+                type=chart_map[chart_type],
+                style=style,
+                addplot=addplots if addplots else None,
+                volume=True,
+                returnfig=True,
+                figsize=(12,8)
+            )
+            st.pyplot(fig)
 
 # -------- Tab 2: Crypto --------
 with tab2:
