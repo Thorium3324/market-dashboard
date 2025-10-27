@@ -43,18 +43,24 @@ live_mode = st.sidebar.toggle("Live Mode", False)
 # ====== Fetch Stock Data ======
 @st.cache_data(ttl=60)
 def get_stock_data(symbol, period='30d'):
-    stock = yf.Ticker(symbol)
-    hist = stock.history(period=period).fillna(method='ffill')
-    hist['RSI'] = RSIIndicator(hist['Close']).rsi()
-    macd = MACD(hist['Close'])
-    hist['MACD'] = macd.macd()
-    hist['MACD_Signal'] = macd.macd_signal()
-    bb = BollingerBands(hist['Close'])
-    hist['BB_Upper'] = bb.bollinger_hband()
-    hist['BB_Lower'] = bb.bollinger_lband()
-    hist['SMA_20'] = hist['Close'].rolling(20).mean()
-    hist['EMA_20'] = hist['Close'].ewm(span=20, adjust=False).mean()
-    return hist
+    try:
+        stock = yf.Ticker(symbol)
+        hist = stock.history(period=period)
+        if hist.empty or len(hist) < 2:
+            return pd.DataFrame()
+        hist = hist.fillna(method='ffill').fillna(method='bfill')
+        hist['RSI'] = RSIIndicator(hist['Close']).rsi()
+        macd = MACD(hist['Close'])
+        hist['MACD'] = macd.macd()
+        hist['MACD_Signal'] = macd.macd_signal()
+        bb = BollingerBands(hist['Close'])
+        hist['BB_Upper'] = bb.bollinger_hband()
+        hist['BB_Lower'] = bb.bollinger_lband()
+        hist['SMA_20'] = hist['Close'].rolling(20).mean()
+        hist['EMA_20'] = hist['Close'].ewm(span=20, adjust=False).mean()
+        return hist
+    except:
+        return pd.DataFrame()
 
 # ====== Main Page Layout ======
 st.title("📊 StockMatrix Pro 4.0")
@@ -69,14 +75,18 @@ hist_data = get_stock_data(selected_stock, period_option)
 if hist_data.empty:
     st.warning(f"No data for {selected_stock}")
 else:
-    # ====== Plot ======
-    df_mpf = hist_data[['Open','High','Low','Close','Volume']]
+    # ====== Prepare mplfinance plots safely ======
+    df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
     addplots=[]
     for col, color, panel, ylabel in [('SMA_20','orange',0,''), ('EMA_20','cyan',0,''), ('RSI','purple',1,'RSI'), ('MACD','blue',2,'MACD'), ('MACD_Signal','orange',2,'')]:
-        if col in hist_data.columns:
+        if col in hist_data.columns and hist_data[col].notna().any():
             addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
-    fig, axlist = mpf.plot(df_mpf, type=chart_type.lower(), style=style, addplot=addplots, volume=True, returnfig=True, figsize=(12,8))
-    st.pyplot(fig)
+    try:
+        fig, axlist = mpf.plot(df_mpf, type=chart_type.lower(), style=style, addplot=addplots if addplots else None,
+                               volume=True, returnfig=True, figsize=(12,8))
+        st.pyplot(fig)
+    except Exception as e:
+        st.error(f"Error rendering chart: {e}")
 
     # ====== Metrics Card ======
     current_price = hist_data['Close'].iloc[-1]
@@ -87,7 +97,6 @@ else:
     current_macd_signal = hist_data['MACD_Signal'].iloc[-1]
     volatility = hist_data['Close'].pct_change().std()*100
 
-    # Determine signal
     signal = "Neutral"
     if current_rsi<30 and current_macd>current_macd_signal: signal="Buy"
     elif current_rsi>70 and current_macd<current_macd_signal: signal="Sell"
