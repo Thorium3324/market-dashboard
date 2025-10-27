@@ -38,7 +38,7 @@ chart_map = {"Candle": "candle", "Line": "line", "Bar": "ohlc"}
 theme = st.sidebar.radio("Theme", ["Light", "Dark"])
 style = "yahoo" if theme == "Light" else "nightclouds"
 
-# ====== Rozszerzony suwak refresh ======
+# ====== Refresh ======
 refresh_unit = st.sidebar.selectbox("Refresh unit", ["Minutes","Hours","Days"])
 if refresh_unit=="Minutes":
     refresh_value = st.sidebar.slider("Refresh Interval", 1, 60, 5)
@@ -51,20 +51,6 @@ else:
     refresh_seconds = refresh_value * 86400  # dni w sekundach
 auto_refresh = st.sidebar.toggle("Enable Auto-Refresh", True)
 live_mode = st.sidebar.toggle("🚀 Enable Live Mode (every 30s)", False)
-
-# ====== Ticker bar ======
-indices = {"S&P500":"^GSPC","NASDAQ":"^IXIC","DOW":"^DJI","BTC":"BTC-USD"}
-ticker_data = {}
-for name,symbol in indices.items():
-    try:
-        hist = yf.Ticker(symbol).history(period="1d")
-        last_price = hist['Close'].iloc[-1] if not hist.empty else 0
-        change = (hist['Close'].iloc[-1]/hist['Close'].iloc[0]-1)*100 if len(hist)>1 else 0
-        ticker_data[name] = (last_price,change)
-    except:
-        ticker_data[name]=(0,0)
-ticker_html = " | ".join([f"{name}: ${price:.2f} ({change:+.2f}%)" for name,(price,change) in ticker_data.items()])
-st.markdown(f"<div class='ticker-bar'>{ticker_html}</div>", unsafe_allow_html=True)
 
 # ====== Cache danych ======
 @st.cache_data(ttl=60)
@@ -87,7 +73,7 @@ def get_stock_data(symbol, period='30d'):
     except:
         return pd.DataFrame()
 
-# ====== Sygnały i analiza ======
+# ====== Sygnały ======
 def get_signal(rsi, macd, macd_signal):
     if rsi<30 and macd>macd_signal: return "Buy"
     elif rsi>70 and macd<macd_signal: return "Sell"
@@ -115,12 +101,12 @@ if live_mode:
     st.session_state["last_live_refresh"] = st.session_state.get("last_live_refresh", time.time())
     if time.time()-st.session_state["last_live_refresh"]>=30:
         st.session_state["last_live_refresh"]=time.time()
-        st.rerun()
+        st.experimental_rerun()
 if auto_refresh:
     last_update_time = st.session_state.get("last_update_time",time.time())
     if time.time()-last_update_time>refresh_seconds:
         st.session_state["last_update_time"]=time.time()
-        st.rerun()
+        st.experimental_rerun()
 
 # ====== Tabs ======
 tab1,tab2,tab3,tab4 = st.tabs(["📈 Stocks","💰 Crypto","🪙 Metals","📊 Indices"])
@@ -147,8 +133,53 @@ with tab1:
         ]:
             if col in hist_data and hist_data[col].notna().any():
                 addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
-        fig,axlist=mpf.plot(df_mpf,type=chart_map[chart_type],style=style,addplot=addplots if addplots else None,volume=True,returnfig=True,figsize=(12,8))
+        fig, axlist = mpf.plot(
+            df_mpf,
+            type=chart_map[chart_type],
+            style=style,
+            addplot=addplots if addplots else None,
+            volume=True,
+            returnfig=True,
+            figsize=(12,8)
+        )
+        # ====== Linie poziome RSI tylko jeśli panel istnieje ======
         if 'RSI' in hist_data.columns and len(axlist)>1:
-            axlist[1].axhline(70,color='r',linestyle='--',alpha=0.5)
-            axlist[1].axhline(30,color)
+            try:
+                axlist[1].axhline(70,color='r',linestyle='--',alpha=0.5)
+                axlist[1].axhline(30,color='g',linestyle='--',alpha=0.5)
+            except Exception:
+                pass
+        st.pyplot(fig)
 
+        # ====== Analiza techniczna ======
+        st.subheader("Technical Analysis")
+        current_price = hist_data['Close'].iloc[-1]
+        prev_price = hist_data['Close'].iloc[-2]
+        daily_change = ((current_price/prev_price)-1)*100 if prev_price else 0
+        current_rsi = hist_data['RSI'].iloc[-1]
+        current_macd = hist_data['MACD'].iloc[-1]
+        current_macd_signal = hist_data['MACD_Signal'].iloc[-1]
+        volatility = hist_data['Close'].pct_change().std()*100
+
+        signal = get_signal(current_rsi,current_macd,current_macd_signal)
+        signal_strength = get_signal_strength(current_rsi,current_macd,current_macd_signal,volatility)
+        signal_color = {'Buy':'green','Sell':'red','Neutral':'gray'}
+
+        st.markdown(f"""
+        <div class='metric-card'>
+            <h4>Price: ${current_price:.2f}</h4>
+            <h4>24h Change: {daily_change:+.2f}%</h4>
+            <h4>RSI (14): {current_rsi:.1f}</h4>
+            <h4>MACD: {current_macd:.3f}</h4>
+            <h4>MACD Signal: {current_macd_signal:.3f}</h4>
+            <h4>Volatility (30d): {volatility:.2f}%</h4>
+            <div class='signal-box' style='border:2px solid {signal_color[signal]}; color:{signal_color[signal]}'>
+                Signal: {signal} | Strength: {signal_strength}/10
+            </div>
+            <p>{interpret_signal(signal,current_rsi,volatility)}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ====== Pobranie CSV ======
+        csv = hist_data.to_csv().encode('utf-8')
+        st.download_button("💾 Download Data as CSV", data=csv, file_name=f"{selected_stock}_data.csv")
