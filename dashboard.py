@@ -2,14 +2,15 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import mplfinance as mpf
-from ta.trend import MACD
-from ta.momentum import RSIIndicator
-from ta.volatility import BollingerBands
-import numpy as np
 import matplotlib.pyplot as plt
-
+from ta.trend import MACD, ADXIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.volatility import BollingerBands, AverageTrueRange
+from ta.volume import OnBalanceVolumeIndicator
+import numpy as np
 from stock_market_agent_new import STOCK_SECTORS
 
+# ====== Konfiguracja strony ======
 st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
 
 # ====== Styl ======
@@ -17,7 +18,7 @@ st.markdown("""
 <style>
 body { background-color: #0e1117; color: #e8e6e3; font-family: 'Verdana', sans-serif; }
 .metric-card { padding: 12px; border-radius: 10px; margin-bottom: 12px; background-color: #1c1f26; box-shadow: 2px 2px 12px rgba(0,0,0,0.3); font-size: 14px; }
-.signal-box { padding: 10px; border-radius: 8px; font-weight: bold; text-align: center; margin-top:5px; font-size: 16px; }
+.signal-box { padding: 10px; border-radius: 8px; text-align: center; margin-top:5px; font-size: 16px; color:white; font-weight:bold; }
 h2, h3, h4 { color: #ffffff; font-weight: normal; }
 </style>
 """, unsafe_allow_html=True)
@@ -30,9 +31,7 @@ period_option = st.sidebar.select_slider("Time Range", options=["7d","30d","3mo"
 chart_type_option = st.sidebar.radio("Chart Type", ["Candle", "Line", "Bar"])
 theme = st.sidebar.radio("Theme", ["Light", "Dark"])
 style = "yahoo" if theme=="Light" else "nightclouds"
-
-# Map user-friendly chart types to mplfinance types
-chart_type_map = {"Candle": "candle", "Line": "line", "Bar": "ohlc"}
+chart_type_map = {"Candle":"candle", "Line":"line", "Bar":"ohlc"}
 
 # ====== Fetch stock data ======
 @st.cache_data(ttl=60)
@@ -51,6 +50,14 @@ def get_stock_data(symbol, period='30d'):
         hist['BB_Lower'] = bb.bollinger_lband()
         hist['SMA_20'] = hist['Close'].rolling(20).mean()
         hist['EMA_20'] = hist['Close'].ewm(span=20, adjust=False).mean()
+        atr = AverageTrueRange(hist['High'], hist['Low'], hist['Close'])
+        hist['ATR'] = atr.average_true_range()
+        adx = ADXIndicator(hist['High'], hist['Low'], hist['Close'])
+        hist['ADX'] = adx.adx()
+        obv = OnBalanceVolumeIndicator(hist['Close'], hist['Volume'])
+        hist['OBV'] = obv.on_balance_volume()
+        stoch = StochasticOscillator(hist['High'], hist['Low'], hist['Close'])
+        hist['Stoch'] = stoch.stoch()
         return hist
     except:
         return pd.DataFrame()
@@ -75,30 +82,11 @@ else:
             if col in hist_data.columns and hist_data[col].notna().any():
                 addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
         try:
-            fig, axlist = mpf.plot(df_mpf, type=chart_type_map[chart_type_option], style=style, addplot=addplots if addplots else None,
-                                   volume=True, returnfig=True, figsize=(8,5))
+            fig, axlist = mpf.plot(df_mpf, type=chart_type_map[chart_type_option], style=style,
+                                   addplot=addplots if addplots else None, volume=True, returnfig=True, figsize=(8,5))
             st.pyplot(fig)
         except Exception as e:
             st.error(f"Error rendering chart: {e}")
-
-        # Mini wykresy RSI i MACD
-        fig_rsi, ax_rsi = plt.subplots(figsize=(8,1.5))
-        ax_rsi.plot(hist_data.index, hist_data['RSI'], color='purple')
-        ax_rsi.axhline(70, color='red', linestyle='--', alpha=0.5)
-        ax_rsi.axhline(30, color='green', linestyle='--', alpha=0.5)
-        ax_rsi.set_facecolor('#0e1117')
-        ax_rsi.tick_params(colors='white', labelsize=8)
-        ax_rsi.set_title("RSI (14)", color='white', fontsize=10)
-        st.pyplot(fig_rsi)
-
-        fig_macd, ax_macd = plt.subplots(figsize=(8,1.5))
-        ax_macd.plot(hist_data.index, hist_data['MACD'], color='blue', label='MACD')
-        ax_macd.plot(hist_data.index, hist_data['MACD_Signal'], color='orange', label='Signal')
-        ax_macd.set_facecolor('#0e1117')
-        ax_macd.tick_params(colors='white', labelsize=8)
-        ax_macd.set_title("MACD", color='white', fontsize=10)
-        ax_macd.legend(frameon=False, fontsize=8)
-        st.pyplot(fig_macd)
 
     # ----- Prawy panel -----
     with col2:
@@ -113,8 +101,12 @@ else:
         ema_20 = hist_data['EMA_20'].iloc[-1]
         bb_upper = hist_data['BB_Upper'].iloc[-1]
         bb_lower = hist_data['BB_Lower'].iloc[-1]
+        atr = hist_data['ATR'].iloc[-1]
+        adx = hist_data['ADX'].iloc[-1]
+        obv = hist_data['OBV'].iloc[-1]
+        stoch = hist_data['Stoch'].iloc[-1]
 
-        # Sygnał rynkowy
+        # Signal logic
         if current_rsi<30 and current_macd>current_macd_signal:
             signal_text = "BUY"
             signal_color = "green"
@@ -128,13 +120,19 @@ else:
         change_color = "green" if daily_change>0 else "red" if daily_change<0 else "white"
 
         st.markdown(f"""
-        <div class='metric-card'>
-            Price: <span style='color:{change_color}'>${current_price:.2f} ({daily_change:+.2f}%)</span><br>
-            Signal: <span class='signal-box' style='background-color:{signal_color};'>{signal_text}</span><br>
-            RSI (14): {current_rsi:.1f}<br>
-            MACD: {current_macd:.3f} | Signal: {current_macd_signal:.3f}<br>
-            SMA 20: {sma_20:.2f} | EMA 20: {ema_20:.2f}<br>
-            Bollinger Bands: {bb_lower:.2f} - {bb_upper:.2f}<br>
-            Volatility (30d): {volatility:.2f}%
+        <div style='display:flex; flex-direction:column; gap:10px;'>
+
+            <div class='metric-card'><b>Price:</b> <span style='color:{change_color}'>${current_price:.2f} ({daily_change:+.2f}%)</span></div>
+            <div class='metric-card'><b>Signal:</b> <span class='signal-box' style='background-color:{signal_color};'>{signal_text}</span></div>
+            <div class='metric-card'><b>RSI (14):</b> <span style='color:{"green" if current_rsi<30 else "red" if current_rsi>70 else "white"}'>{current_rsi:.1f}</span></div>
+            <div class='metric-card'><b>MACD:</b> <span style='color:{"green" if current_macd>current_macd_signal else "red"}'>{current_macd:.3f}</span> | <b>Signal:</b> <span style='color:{"green" if current_macd>current_macd_signal else "red"}'>{current_macd_signal:.3f}</span></div>
+            <div class='metric-card'><b>SMA 20:</b> {sma_20:.2f} | <b>EMA 20:</b> {ema_20:.2f}</div>
+            <div class='metric-card'><b>Bollinger Bands:</b> {bb_lower:.2f} - {bb_upper:.2f}</div>
+            <div class='metric-card'><b>Volatility (30d):</b> {volatility:.2f}%</div>
+            <div class='metric-card'><b>ATR (14):</b> {atr:.2f}</div>
+            <div class='metric-card'><b>ADX (14):</b> {adx:.2f}</div>
+            <div class='metric-card'><b>OBV:</b> {obv:.2f}</div>
+            <div class='metric-card'><b>Stochastic %K:</b> {stoch:.2f}</div>
+
         </div>
         """, unsafe_allow_html=True)
