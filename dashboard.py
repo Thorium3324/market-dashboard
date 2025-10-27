@@ -20,8 +20,8 @@ st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide", initial_side
 st.markdown("""
 <style>
 body { background-color: #0e1117; color: #e8e6e3; }
-.metric-card { padding: 10px; border-radius: 8px; background-color: #1c1f26; margin-bottom: 10px; }
-.signal-box { border-radius: 8px; padding: 10px; font-weight: bold; text-align: center; }
+.metric-card { padding: 15px; border-radius: 10px; background-color: #1c1f26; margin-bottom: 15px; }
+.signal-box { border-radius: 8px; padding: 10px; font-weight: bold; text-align: center; margin-top:5px; }
 .live-indicator { position: fixed; top: 20px; right: 25px; background-color: #ff0000; color: white; font-weight: bold; border-radius: 50px; padding: 6px 12px; animation: pulse 1s infinite; z-index: 9999; }
 .ticker-bar { background-color: #1c1f26; padding: 5px 10px; color: #ffffff; font-weight: bold; border-radius: 5px; margin-bottom: 10px; }
 @keyframes pulse { 0% {opacity:1;} 50%{opacity:0.5;} 100%{opacity:1;} }
@@ -138,28 +138,16 @@ with tab1:
         # ====== Wykres ======
         df_mpf = hist_data[['Open','High','Low','Close','Volume']].copy()
         addplots=[]
-        for col,color,panel,ylabel in [('SMA_20','orange',0,''),('EMA_20','cyan',0,''),('RSI','purple',1,'RSI'),('MACD','blue',2,'MACD'),('MACD_Signal','orange',2,'')]:
+        for col,color,panel,ylabel in [
+            ('SMA_20','orange',0,''), 
+            ('EMA_20','cyan',0,''), 
+            ('RSI','purple',1,'RSI'), 
+            ('MACD','blue',2,'MACD'), 
+            ('MACD_Signal','orange',2,'')
+        ]:
             if col in hist_data and hist_data[col].notna().any():
                 addplots.append(mpf.make_addplot(hist_data[col], panel=panel, color=color, ylabel=ylabel))
         fig,axlist=mpf.plot(df_mpf,type=chart_map[chart_type],style=style,addplot=addplots if addplots else None,volume=True,returnfig=True,figsize=(12,8))
-        if len(axlist)>1:
+        if 'RSI' in hist_data.columns and len(axlist)>1:
             axlist[1].axhline(70,color='r',linestyle='--',alpha=0.5)
-            axlist[1].axhline(30,color='g',linestyle='--',alpha=0.5)
-        st.pyplot(fig)
-
-        # ====== Analiza techniczna ======
-        col1,col2=st.columns([1,1])
-        with col1:
-            current_price = hist_data['Close'].iloc[-1]
-            daily_change = ((hist_data['Close'].iloc[-1]/hist_data['Close'].iloc[-2]-1)*100) if len(hist_data)>1 else 0
-            st.metric("Price (USD)", f"${current_price:.2f}")
-            st.metric("24h Change", f"{daily_change:+.2f}%")
-        with col2:
-            current_rsi = hist_data['RSI'].iloc[-1]
-            current_macd = hist_data['MACD'].iloc[-1]
-            current_macd_signal = hist_data['MACD_Signal'].iloc[-1]
-            volatility = hist_data['Close'].pct_change().std()*100
-            signal = get_signal(current_rsi,current_macd,current_macd_signal)
-            signal_strength = get_signal_strength(current_rsi,current_macd,current_macd_signal,volatility)
-            signal_color = {'Buy':'green','Sell':'red','Neutral':'gray'}
-           
+            axlist[1].axhline(30,color
