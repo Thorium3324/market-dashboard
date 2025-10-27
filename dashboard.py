@@ -10,8 +10,8 @@ from ta.volume import OnBalanceVolumeIndicator
 import time
 
 # ====== Konfiguracja strony ======
-st.set_page_config(page_title="StockMatrix", layout="wide")
-st.markdown("<h1 style='text-align: center;'>StockMatrix Pro Dashboard</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
+st.markdown("<h1 style='text-align: center;'>StockMatrix Pro 4.0</h1>", unsafe_allow_html=True)
 
 # ====== Lista sektorów i spółek ======
 STOCK_SECTORS = {
@@ -27,13 +27,11 @@ def get_stock_data(symbol, period='1mo'):
     try:
         df = yf.download(symbol, period=period)
         if df.empty or len(df)<2:
-            # Fallback: spróbuj większego okresu
             df = yf.download(symbol, period='3mo')
         if df.empty or len(df)<2:
             return pd.DataFrame()
-        df = df[['Open','High','Low','Close','Volume']]
-        df = df.dropna()
-        # Technical indicators
+        df = df[['Open','High','Low','Close','Volume']].dropna()
+        # Indicators
         df['RSI'] = RSIIndicator(df['Close'], window=14).rsi()
         macd = MACD(df['Close'])
         df['MACD'] = macd.macd()
@@ -46,8 +44,7 @@ def get_stock_data(symbol, period='1mo'):
         df['ATR'] = AverageTrueRange(df['High'], df['Low'], df['Close']).average_true_range()
         df['OBV'] = OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
         return df
-    except Exception as e:
-        print(f"Błąd pobierania danych dla {symbol}: {e}")
+    except:
         return pd.DataFrame()
 
 def get_signal(rsi, macd, macd_signal):
@@ -72,29 +69,29 @@ def get_company_info(symbol):
     except:
         return symbol, f"https://logo.clearbit.com/{symbol.lower()}.com"
 
-# ====== Kolumny ======
+# ====== Layout: 3 kolumny ======
 col1, col2, col3 = st.columns([1.5,3,1.5])
 
-# ====== Kolumna 1: ustawienia ======
+# ====== Lewy panel ======
 with col1:
     st.subheader("Ustawienia")
-    data_type = st.radio("Typ danych:", ["Akcje", "Obligacje", "Kruszcze", "ETF", "Kryptowaluty"])
-    sector = st.selectbox("Wybierz sektor:", list(STOCK_SECTORS.keys()))
+    data_type = st.radio("Typ danych:", ["Akcje", "Obligacje", "ETF", "Kryptowaluty", "Kruszcze"])
+    sector = st.selectbox("Sektor:", list(STOCK_SECTORS.keys()))
     symbol_list = STOCK_SECTORS[sector]
-    symbol = st.selectbox("Wybierz spółkę:", symbol_list)
-    search_tag = st.text_input("Szukaj po tagu lub symbolu:")
+    symbol = st.selectbox("Spółka:", symbol_list)
+    search_tag = st.text_input("Szukaj po symbolu/tagu:")
     if search_tag:
         filtered = [s for s in symbol_list if search_tag.upper() in s.upper()]
         if filtered:
-            symbol = st.selectbox("Wybierz spółkę:", filtered)
+            symbol = st.selectbox("Spółka:", filtered)
     chart_type = st.selectbox("Typ wykresu:", ["Candle","Line","OHLC"])
     chart_map = {"Candle":"candle","Line":"line","OHLC":"ohlc"}
     period = st.selectbox("Okres:", ["7d","30d","3mo","6mo","1y","2y","5y"])
     refresh_unit = st.selectbox("Auto-refresh co:", ["Sekundy","Minuty"])
     refresh_value = st.slider("Co ile odświeżać:",1,60,5)
-    auto_refresh = st.checkbox("Włącz auto-refresh", value=True)
+    auto_refresh = st.checkbox("Auto-refresh", value=True)
 
-# ====== Dynamiczny refresh ======
+# ====== Auto-refresh ======
 if auto_refresh:
     if "last_refresh" not in st.session_state:
         st.session_state.last_refresh = time.time()
@@ -103,16 +100,15 @@ if auto_refresh:
         st.session_state.last_refresh = time.time()
         st.experimental_rerun()
 
-# ====== Kolumna 2: wykres ======
+# ====== Środkowy panel: wykres ======
 with col2:
     company_name, company_logo = get_company_info(symbol)
     st.subheader(f"{sector} - {symbol} ({company_name})")
     st.image(company_logo, width=80)
-    
+
     data = get_stock_data(symbol, period)
     if data.empty:
-        st.warning("Brak danych do wyświetlenia wykresu.")
-        # fallback: wykres liniowy pusty
+        st.warning("Brak danych do wykresu. Spróbuj inny okres lub symbol.")
         st.line_chart([0])
     else:
         addplots=[]
@@ -136,11 +132,10 @@ with col2:
                 figsize=(6,6)
             )
             st.pyplot(fig)
-        except Exception as e:
-            st.warning(f"Nie udało się wygenerować wykresu: {e}")
+        except:
             st.line_chart(data['Close'])
 
-# ====== Kolumna 3: analiza ======
+# ====== Prawy panel: analiza finansowa ======
 with col3:
     st.subheader("Analiza techniczna")
     if not data.empty:
@@ -155,6 +150,7 @@ with col3:
         bb_upper = data['BB_Upper'].iloc[-1] if 'BB_Upper' in data.columns else np.nan
         bb_lower = data['BB_Lower'].iloc[-1] if 'BB_Lower' in data.columns else np.nan
         signal = get_signal(rsi, macd_val, macd_signal_val)
+
         st.markdown(f"**Cena:** ${current_price:.2f}")
         st.markdown(f"**Zmiana dzienna:** <span style='color:{'green' if daily_change>0 else 'red'}'>{daily_change:+.2f}%</span>", unsafe_allow_html=True)
         st.markdown(f"**RSI (14):** {rsi:.2f}")
