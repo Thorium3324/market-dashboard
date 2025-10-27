@@ -6,7 +6,7 @@ from ta.momentum import RSIIndicator
 from ta.trend import MACD, ADXIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
 from ta.volume import OnBalanceVolumeIndicator
-from datetime import datetime
+import time
 
 # ====== Konfiguracja strony ======
 st.set_page_config(page_title="StockMatrix", layout="wide")
@@ -19,7 +19,6 @@ def get_stock_data(symbol, period='1mo'):
         return pd.DataFrame()
     df = df.reset_index()
     df = df[['Date','Open','High','Low','Close','Volume']]
-    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
     df = df.dropna(subset=['Close'])
     df = df.set_index('Date')
     
@@ -52,8 +51,15 @@ def get_signal(rsi, macd, macd_signal):
 def signal_color(signal):
     return {"BUY":"green","SELL":"red","HOLD":"gray"}.get(signal,"gray")
 
-def get_company_logo(symbol):
-    return f"https://logo.clearbit.com/{symbol.lower()}.com"
+def get_company_info(symbol):
+    try:
+        stock = yf.Ticker(symbol)
+        info = stock.info
+        name = info.get('longName', symbol)
+        logo = info.get('logo_url', f"https://logo.clearbit.com/{symbol.lower()}.com")
+        return name, logo
+    except:
+        return symbol, f"https://logo.clearbit.com/{symbol.lower()}.com"
 
 # ====== Lista sektorów i przykładowe spółki ======
 STOCK_SECTORS = {
@@ -88,14 +94,24 @@ with col1:
     
     period = st.selectbox("Okres:", ["7d","30d","3mo","6mo","1y","2y","5y"])
     
-    refresh_unit = st.selectbox("Auto-refresh co:", ["Minuty","Godziny","Dni"])
+    refresh_unit = st.selectbox("Auto-refresh co:", ["Sekundy","Minuty"])
     refresh_value = st.slider("Co ile odświeżać:",1,60,5)
     auto_refresh = st.checkbox("Włącz auto-refresh", value=True)
 
+# ====== Dynamiczny refresh ======
+if auto_refresh:
+    if "last_refresh" not in st.session_state:
+        st.session_state.last_refresh = time.time()
+    interval = refresh_value if refresh_unit=="Sekundy" else refresh_value*60
+    if time.time()-st.session_state.last_refresh>interval:
+        st.session_state.last_refresh = time.time()
+        st.experimental_rerun()
+
 # ====== Kolumna 2: wykres ======
 with col2:
-    st.subheader(f"{sector} - {symbol}")
-    st.image(get_company_logo(symbol), width=80)
+    company_name, company_logo = get_company_info(symbol)
+    st.subheader(f"{sector} - {symbol} ({company_name})")
+    st.image(company_logo, width=80)
     
     data = get_stock_data(symbol, period)
     if data.empty:
@@ -151,11 +167,16 @@ with col3:
         
         # Sector Overview
         st.subheader("Sector Overview")
-        sector_data = []
+        sector_overview = []
         for s in STOCK_SECTORS[sector]:
             sec_data = get_stock_data(s, period)
             if not sec_data.empty:
-                sector_data.append({
-                    "Symbol": s,
-                    "Price": sec_data['Close'].iloc[-1],
-                    "Change%": ((sec_data['Close
+                price = sec_data['Close'].iloc[-1]
+                change_pct = ((price - sec_data['Close'].iloc[-2])/sec_data['Close'].iloc[-2])*100
+                sector_overview.append((s, price, change_pct))
+        
+        overview_df = pd.DataFrame(sector_overview, columns=["Symbol","Price","Change%"])
+        st.dataframe(overview_df.style.format({"Price":"${:.2f}", "Change%":"{:+.2f}%"}))
+
+# ====== Stopka ======
+st.markdown("<hr><p style='text-align:center;font-size:12px;'>Dane pobrano z Yahoo Finance</p>", unsafe_allow_html=True)
