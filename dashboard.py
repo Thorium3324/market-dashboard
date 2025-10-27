@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import mplfinance as mpf
-from ta.trend import MACD, SMAIndicator
+from ta.trend import MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 import numpy as np
+import matplotlib.pyplot as plt
 
 from stock_market_agent_new import STOCK_SECTORS
 
@@ -14,10 +15,11 @@ st.set_page_config(page_title="StockMatrix Pro 4.0", layout="wide")
 # ====== Styl ======
 st.markdown("""
 <style>
-body { background-color: #0e1117; color: #e8e6e3; font-family: 'Segoe UI', sans-serif; }
-.metric-card { padding: 20px; border-radius: 12px; background-color: #1c1f26; margin-bottom: 15px; box-shadow: 2px 2px 15px rgba(0,0,0,0.3);}
-.signal-box { border-radius: 8px; padding: 8px; font-weight: bold; text-align: center; margin-top:5px; }
-h2, h3 { color: #ffffff; }
+body { background-color: #0e1117; color: #e8e6e3; font-family: 'Verdana', sans-serif; }
+.metric-card { padding: 15px; border-radius: 12px; background-color: #1c1f26; margin-bottom: 15px; box-shadow: 2px 2px 15px rgba(0,0,0,0.3);}
+.signal-box { border-radius: 8px; padding: 10px; font-weight: bold; text-align: center; margin-top:5px; font-size: 18px; }
+.rsi-macd-plot { margin-bottom: 15px; }
+h2, h3, h4 { color: #ffffff; font-weight: normal; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -62,8 +64,9 @@ if hist_data.empty:
     st.warning(f"No data for {selected_stock}")
 else:
     # ====== Układ kolumn ======
-    col1, col2 = st.columns([2,1])  # 2:1 ratio, wykres większy
-    # ----- Wykres -----
+    col1, col2 = st.columns([2,1])
+
+    # ----- Wykres główny -----
     with col1:
         df_mpf = hist_data[['Open','High','Low','Close','Volume']]
         addplots=[]
@@ -77,7 +80,26 @@ else:
         except Exception as e:
             st.error(f"Error rendering chart: {e}")
 
-    # ----- Analiza techniczna -----
+        # ----- Mini wykresy RSI i MACD -----
+        fig_rsi, ax_rsi = plt.subplots(figsize=(8,1.5))
+        ax_rsi.plot(hist_data.index, hist_data['RSI'], color='purple')
+        ax_rsi.axhline(70, color='red', linestyle='--', alpha=0.5)
+        ax_rsi.axhline(30, color='green', linestyle='--', alpha=0.5)
+        ax_rsi.set_title("RSI (14)", color='white', fontsize=10)
+        ax_rsi.set_facecolor('#0e1117')
+        ax_rsi.tick_params(colors='white', labelsize=8)
+        st.pyplot(fig_rsi)
+
+        fig_macd, ax_macd = plt.subplots(figsize=(8,1.5))
+        ax_macd.plot(hist_data.index, hist_data['MACD'], color='blue', label='MACD')
+        ax_macd.plot(hist_data.index, hist_data['MACD_Signal'], color='orange', label='Signal')
+        ax_macd.set_title("MACD", color='white', fontsize=10)
+        ax_macd.set_facecolor('#0e1117')
+        ax_macd.tick_params(colors='white', labelsize=8)
+        ax_macd.legend(frameon=False, fontsize=8)
+        st.pyplot(fig_macd)
+
+    # ----- Prawy panel: analiza techniczna -----
     with col2:
         current_price = hist_data['Close'].iloc[-1]
         prev_price = hist_data['Close'].iloc[-2]
@@ -91,32 +113,38 @@ else:
         bb_upper = hist_data['BB_Upper'].iloc[-1]
         bb_lower = hist_data['BB_Lower'].iloc[-1]
 
-        signal = "Neutral"
-        if current_rsi<30 and current_macd>current_macd_signal: signal="Buy"
-        elif current_rsi>70 and current_macd<current_macd_signal: signal="Sell"
-        signal_color={'Buy':'green','Sell':'red','Neutral':'gray'}
+        # sygnał kolorowy i tekst
+        if current_rsi<30 and current_macd>current_macd_signal:
+            signal_text = "BUY"
+            signal_color = "green"
+        elif current_rsi>70 and current_macd<current_macd_signal:
+            signal_text = "SELL"
+            signal_color = "red"
+        else:
+            signal_text = "HOLD"
+            signal_color = "gray"
 
-        # ----- Karty analizy -----
+        # zmiana dzienna kolor
+        change_color = "green" if daily_change>0 else "red" if daily_change<0 else "white"
+
         st.markdown(f"""
         <div class='metric-card'>
-            <h4>Price: ${current_price:.2f} ({daily_change:+.2f}%)</h4>
+            <h4>Price: <span style='color:{change_color}'>${current_price:.2f} ({daily_change:+.2f}%)</span></h4>
             <h4>RSI (14): {current_rsi:.1f}</h4>
-            <h4>MACD: {current_macd:.3f}</h4>
-            <h4>MACD Signal: {current_macd_signal:.3f}</h4>
-            <h4>SMA 20: {sma_20:.2f}</h4>
-            <h4>EMA 20: {ema_20:.2f}</h4>
+            <h4>MACD: {current_macd:.3f} | Signal: {current_macd_signal:.3f}</h4>
+            <h4>SMA 20: {sma_20:.2f} | EMA 20: {ema_20:.2f}</h4>
             <h4>Bollinger Bands: {bb_lower:.2f} - {bb_upper:.2f}</h4>
             <h4>Volatility (30d): {volatility:.2f}%</h4>
-            <div class='signal-box' style='border:2px solid {signal_color[signal]}; color:{signal_color[signal]}'>Signal: {signal}</div>
+            <div class='signal-box' style='background-color:{signal_color}; color:white'>{signal_text}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # dodatkowe przydatne wskaźniki
+        # dodatkowe wskaźniki
         weekly_change = ((hist_data['Close'].iloc[-1]/hist_data['Close'].iloc[-5])-1)*100 if len(hist_data)>=5 else np.nan
         price_range = hist_data['High'].max()-hist_data['Low'].min()
         st.markdown(f"""
         <div class='metric-card'>
-            <h4>Weekly Change: {weekly_change:+.2f}%</h4>
+            <h4>Weekly Change: <span style='color:{"green" if weekly_change>0 else "red"}'>{weekly_change:+.2f}%</span></h4>
             <h4>Price Range (High-Low): {price_range:.2f}</h4>
         </div>
         """ , unsafe_allow_html=True)
