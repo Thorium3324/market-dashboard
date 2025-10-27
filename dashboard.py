@@ -27,9 +27,13 @@ def get_stock_data(symbol, period='1mo'):
     try:
         df = yf.download(symbol, period=period)
         if df.empty or len(df)<2:
+            # Fallback: spróbuj większego okresu
+            df = yf.download(symbol, period='3mo')
+        if df.empty or len(df)<2:
             return pd.DataFrame()
         df = df[['Open','High','Low','Close','Volume']]
         df = df.dropna()
+        # Technical indicators
         df['RSI'] = RSIIndicator(df['Close'], window=14).rsi()
         macd = MACD(df['Close'])
         df['MACD'] = macd.macd()
@@ -108,6 +112,8 @@ with col2:
     data = get_stock_data(symbol, period)
     if data.empty:
         st.warning("Brak danych do wyświetlenia wykresu.")
+        # fallback: wykres liniowy pusty
+        st.line_chart([0])
     else:
         addplots=[]
         for col_name,color,panel,ylabel in [
@@ -131,7 +137,8 @@ with col2:
             )
             st.pyplot(fig)
         except Exception as e:
-            st.error(f"Nie udało się wygenerować wykresu: {e}")
+            st.warning(f"Nie udało się wygenerować wykresu: {e}")
+            st.line_chart(data['Close'])
 
 # ====== Kolumna 3: analiza ======
 with col3:
@@ -143,11 +150,17 @@ with col3:
         rsi = data['RSI'].iloc[-1] if 'RSI' in data.columns else np.nan
         macd_val = data['MACD'].iloc[-1] if 'MACD' in data.columns else np.nan
         macd_signal_val = data['MACD_Signal'].iloc[-1] if 'MACD_Signal' in data.columns else np.nan
+        atr = data['ATR'].iloc[-1] if 'ATR' in data.columns else np.nan
+        obv = data['OBV'].iloc[-1] if 'OBV' in data.columns else np.nan
+        bb_upper = data['BB_Upper'].iloc[-1] if 'BB_Upper' in data.columns else np.nan
+        bb_lower = data['BB_Lower'].iloc[-1] if 'BB_Lower' in data.columns else np.nan
         signal = get_signal(rsi, macd_val, macd_signal_val)
         st.markdown(f"**Cena:** ${current_price:.2f}")
         st.markdown(f"**Zmiana dzienna:** <span style='color:{'green' if daily_change>0 else 'red'}'>{daily_change:+.2f}%</span>", unsafe_allow_html=True)
         st.markdown(f"**RSI (14):** {rsi:.2f}")
         st.markdown(f"**MACD:** {macd_val:.2f} | **MACD Signal:** {macd_signal_val:.2f}")
+        st.markdown(f"**ATR:** {atr:.2f} | **OBV:** {obv:.0f}")
+        st.markdown(f"**BB Upper / Lower:** {bb_upper:.2f} / {bb_lower:.2f}")
         st.markdown(f"<span style='color:{signal_color(signal)}; font-weight:bold;'>Sygnał: {signal}</span>", unsafe_allow_html=True)
 
 # ====== Stopka ======
