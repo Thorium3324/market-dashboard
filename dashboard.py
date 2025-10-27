@@ -150,4 +150,5 @@ with tab1:
         fig,axlist=mpf.plot(df_mpf,type=chart_map[chart_type],style=style,addplot=addplots if addplots else None,volume=True,returnfig=True,figsize=(12,8))
         if 'RSI' in hist_data.columns and len(axlist)>1:
             axlist[1].axhline(70,color='r',linestyle='--',alpha=0.5)
-            axlist[1].axhline(30,color
+            axlist[1].axhline(30,color)
+
